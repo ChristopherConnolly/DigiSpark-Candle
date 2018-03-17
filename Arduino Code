@@ -1,0 +1,209 @@
+
+#include <FastLED.h>
+#include <fastled_config.h>
+#include <fastled_delay.h>
+#include <fastled_progmem.h>
+#include <fastpin.h>
+#include <platforms.h>
+#include <power_mgt.h>
+//#define F_CPU 8000000  // This is used by delay.h library
+
+//Power Management
+#include <avr/sleep.h>
+#include <avr/interrupt.h>
+#include <avr/io.h>
+#include <avr/wdt.h>
+
+#ifndef cbi
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#ifndef sbi
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+#endif
+
+
+//One LED, connected on pin 0
+#define NUM_LEDS 1
+#define DATA_PIN 0
+CRGB leds[1];
+
+
+// mix RGB (0-255) for desired colour. Around 200, 40, 20 gives a decent red effect.
+int red = 220;
+int green = 30;
+int blue = 10;
+int timing = 70; //Timing in ms - used in the switch statement
+
+//Variables for LDR
+int sensorValue = 0;
+int i = 0;
+volatile boolean f_wdt = 1;
+
+
+
+// SETUP
+void setup() {
+  pinMode(1, OUTPUT); //Pin One on my knockoff ATTiny85 board has a little red LED
+  digitalWrite(1, LOW);
+  FastLED.addLeds<WS2812, DATA_PIN>(leds, NUM_LEDS); //The cheap PL9832 LEDs I am using respond most accurately to WS2812 timing
+  leds[0].setRGB (red, green, blue);
+  pinMode(3, INPUT_PULLUP);
+  digitalWrite(3, LOW);
+}
+
+// LOOP
+void loop() {
+  burnCandle(5000); //The main function we will want. Pass in higher number to let it check the LDR less frequently (a good thing).
+  //testLDR(); //A test function
+}
+
+
+
+
+
+
+
+//This brings up pin 3, which has a pullup resistor, checks the voltage, and turns it off to save power.
+bool checkLDR() {
+
+  if (f_wdt == 1) { // wait for timed out watchdog / flag is set when a watchdog timeout occurs
+    f_wdt = 0;
+  }
+  delay(1);
+  ledOff(); //Turn off LED to get a clearer reading
+  digitalWrite(3, HIGH); //Power up Pin 3
+  delay(1);
+  sensorValue = analogRead(3) / 10;
+  digitalWrite(3, LOW); //Power down Pin 3
+  if (sensorValue >= 50) {
+    return true;
+  }
+  else {
+    ledOff();
+    return false;
+    //  standBy();
+  }
+}
+
+/*
+  //Something to turn off the LED and wait two seconds.
+  void standBy(){
+  leds[0].setRGB( 0, 0, 0);
+  FastLED.show();
+  delay(2000);
+  }
+
+  //This literally flashes the LED to show the sensorValue divided by ten. It works surprisingly well. I got figures from 10 (in light) to 30 (out of light).
+  void testLDR(){
+  if (checkLDR()){
+  sensorValue = analogRead(3) / 10;
+  for (i=0; i <= sensorValue; i++){
+  leds[0].setRGB( 100, 0, 0);
+  FastLED.show();
+  delay(50);
+  leds[0].setRGB( 0, 0, 0);
+  FastLED.show();
+  delay(50);
+  }}else{
+  leds[0].setRGB( 0, 100, 0);
+  FastLED.show();
+  delay(100);
+  }
+  }*/
+
+
+// basic fire function
+void burnCandle(int duration) {
+  if (checkLDR()) {
+    for (int time = 0; time <= duration; time++) {//      
+      int flicker = random(0, 9);    
+      switch (flicker) {
+        case 1:
+          leds[0].setRGB( 0, 0, 0);
+          FastLED.show();
+          system_sleep(4);
+          break;
+        case 2:
+          leds[0].setRGB( red * 0.33, green * 0.3, 0);
+          FastLED.show();
+          system_sleep(0);
+        case 3:
+          leds[0].setRGB( red * 0.5, green * 0.4, 0);
+          FastLED.show();
+          system_sleep(0);
+          break;
+        case 4:
+          leds[0].setRGB (red * 0.50, green * 0.50, blue * 0.50);
+          FastLED.show();
+          system_sleep(1);
+          break;
+        case 5:
+          leds[0].setRGB (red*0.8, green, blue);
+          FastLED.show();
+          system_sleep(0);
+          break;
+        default:
+          leds[0].setRGB ( red, green, blue );
+          FastLED.show();
+          system_sleep(1);
+          break;
+
+//      int duration = random(0,5);
+//      int brightness = random(0, 3);
+//      int red = random(1,2);
+//      int green = 0;//random(4,6);
+//      int blue = 0;//random (4,6);
+//          leds[0].setRGB(brightness* red*40, brightness* green *10, brightness* blue *10);
+//          FastLED.show();
+//          delay(flicker);
+//          system_sleep(duration);
+//      }
+      }
+      }
+  }else {
+    ledOff();       //Turn LED off
+    system_sleep(9); //Sleep!
+  }
+}
+
+
+void ledOff() {
+  leds[0].setRGB ( 0, 0, 0 );
+  FastLED.show();
+}
+
+//Taken from https://gist.github.com/dwhacks/8055287#file-attiny85_watchdog_example-ino
+void system_sleep(int napTime) {
+  setup_watchdog(napTime); //Setup for 8 sec.
+  // 0=16ms, 1=32ms,2=64ms,3=128ms,4=250ms,5=500ms
+  // 6=1 sec,7=2 sec, 8=4 sec, 9= 8sec
+
+
+  cbi(ADCSRA, ADEN);                   // switch Analog to Digitalconverter OFF
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN); // sleep mode is set here
+  sleep_enable();
+  sleep_mode();                        // System sleeps here
+  sleep_disable();                     // System continues execution here when watchdog timed out
+  sbi(ADCSRA, ADEN);                   // switch Analog to Digitalconverter ON
+}
+
+void setup_watchdog(int ii) {
+  byte bb;
+  int ww;
+  if (ii > 9 ) ii = 9; //Maximum 9
+  bb = ii & 7;
+  if (ii > 7) bb |= (1 << 5);
+  bb |= (1 << WDCE);
+  ww = bb;
+  MCUSR &= ~(1 << WDRF);
+  // start timed sequence
+  WDTCR |= (1 << WDCE) | (1 << WDE);
+  // set new watchdog timeout value
+  WDTCR = bb;
+  WDTCR |= _BV(WDIE);
+}
+
+// Watchdog Interrupt Service / is executed when watchdog timed out
+ISR(WDT_vect) {
+  f_wdt = 1; // set global flag
+}
